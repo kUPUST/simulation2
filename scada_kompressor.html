@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCADA | Porshenli kompressor — Energiya qayta tiklash tizimi</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#0a0e13; --panel:#111820; --panel2:#182230; --panel3:#1f2c3d;
+  --border:#28374a; --border-lt:#324459;
+  --text:#dbe6f0; --text-dim:#7e93a8; --text-mute:#54697d;
+  --green:#22c55e; --green-dim:#0f3a24;
+  --yellow:#eab308; --yellow-dim:#453305;
+  --red:#ef4444; --red-dim:#3d1414;
+  --gray:#64748b; --gray-dim:#222b36;
+  --blue:#3b82f6; --cyan:#22d3ee; --hot:#ff5c4d; --cold:#4aa3ff; --purple:#a78bfa;
+  --mono:'Consolas','Courier New',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Arial,sans-serif;height:100%;overflow-x:hidden;}
+body{font-size:14px;}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-track{background:var(--panel);}
+::-webkit-scrollbar-thumb{background:var(--border-lt);border-radius:4px;}
+
+/* ===== HEADER ===== */
+#topbar{display:flex;align-items:center;gap:16px;padding:8px 16px;background:linear-gradient(#161f2b,#101820);border-bottom:2px solid var(--border-lt);position:sticky;top:0;z-index:50;flex-wrap:wrap;}
+.logo-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;width:52px;height:44px;border:1px solid var(--border-lt);border-radius:6px;background:var(--panel2);font-weight:700;font-size:10px;color:var(--cyan);line-height:1.1;text-align:center;}
+#topbar h1{font-size:16px;font-weight:600;color:var(--text);flex:1;min-width:200px;}
+#topbar h1 span{display:block;font-size:11px;font-weight:400;color:var(--text-dim);}
+#clockbox{font-family:var(--mono);font-size:15px;color:var(--cyan);background:var(--panel2);border:1px solid var(--border);padding:6px 12px;border-radius:6px;min-width:150px;text-align:center;}
+#modebadge{padding:7px 16px;border-radius:6px;font-weight:700;font-size:12px;letter-spacing:.5px;border:1px solid;}
+.mode-normal{background:var(--green-dim);color:var(--green);border-color:var(--green);}
+.mode-warn{background:var(--yellow-dim);color:var(--yellow);border-color:var(--yellow);animation:blink 1.5s infinite;}
+.mode-alarm{background:var(--red-dim);color:var(--red);border-color:var(--red);animation:blink .8s infinite;}
+@keyframes blink{50%{opacity:.45;}}
+.iconbtn{background:var(--panel2);border:1px solid var(--border-lt);color:var(--text);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;}
+.iconbtn:hover{background:var(--panel3);border-color:var(--cyan);}
+
+/* ===== NAV ===== */
+#navtabs{display:flex;gap:2px;background:var(--panel);border-bottom:1px solid var(--border);padding:0 16px;overflow-x:auto;}
+.navtab{padding:11px 20px;background:transparent;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;font-weight:500;}
+.navtab.active{color:var(--cyan);border-bottom-color:var(--cyan);background:var(--panel2);}
+.navtab:hover{color:var(--text);}
+.navtab .badge{background:var(--red);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;}
+
+.page{display:none;padding:16px;max-width:1600px;margin:0 auto;}
+.page.active{display:block;}
+
+/* ===== PANELS ===== */
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px;}
+.panel h2{font-size:13px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:8px;font-weight:600;}
+
+/* ===== MAIN GRID ===== */
+#mainGrid{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin-bottom:14px;}
+@media(max-width:1100px){#mainGrid{grid-template-columns:1fr;}}
+
+#schematicWrap{overflow-x:auto;}
+#schematicSvg{width:100%;min-width:900px;height:auto;display:block;}
+.eq-box{fill:var(--panel2);stroke:var(--border-lt);stroke-width:1.5;}
+.eq-box.on{stroke:var(--green);}
+.eq-box.warn{stroke:var(--yellow);}
+.eq-box.alarm{stroke:var(--red);animation:svgblink .8s infinite;}
+@keyframes svgblink{50%{fill:var(--red-dim);}}
+.eq-label{fill:var(--text);font-size:10.5px;font-family:Arial,sans-serif;text-anchor:middle;}
+.eq-num{fill:var(--text-mute);font-size:9px;font-family:var(--mono);text-anchor:middle;}
+.eq-val{fill:var(--cyan);font-size:10px;font-family:var(--mono);font-weight:bold;text-anchor:middle;}
+.pipe{fill:none;stroke-width:3;stroke-linecap:round;}
+.pipe-hot{stroke:#c62828;}
+.pipe-cold{stroke:#1565c0;}
+.pipe-air{stroke:#00acc1;}
+.pipe-elec{stroke:#2e7d32;}
+.pipe-sig{stroke:#f9a825;stroke-dasharray:4,3;}
+.flow-anim{stroke-dasharray:6,6;animation:flowmove 1s linear infinite;}
+@keyframes flowmove{to{stroke-dashoffset:-24;}}
+.flow-anim-rev{stroke-dasharray:6,6;animation:flowmoverev 1s linear infinite;}
+@keyframes flowmoverev{to{stroke-dashoffset:24;}}
+.legend-row{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--text-dim);margin-top:10px;padding-top:8px;border-top:1px solid var(--border);}
+.legend-row span{display:flex;align-items:center;gap:5px;}
+.legend-dot{width:16px;height:3px;display:inline-block;border-radius:2px;}
+
+/* ===== PARAMS TABLE ===== */
+#paramTable{width:100%;border-collapse:collapse;font-size:12.5px;}
+#paramTable td{padding:6px 4px;border-bottom:1px solid var(--border);}
+#paramTable td:first-child{color:var(--text-dim);}
+#paramTable td:nth-child(2){font-family:var(--mono);font-weight:700;text-align:right;color:var(--text);}
+#paramTable td:nth-child(3){font-family:var(--mono);color:var(--text-mute);text-align:right;font-size:11px;}
+.val-normal{color:var(--green)!important;}
+.val-warn{color:var(--yellow)!important;}
+.val-alarm{color:var(--red)!important;}
+
+/* ===== MONITORING CARDS ===== */
+#cardsRow{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px;}
+@media(max-width:900px){#cardsRow{grid-template-columns:1fr;}}
+.mcard{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px;border-top:3px solid var(--cyan);}
+.mcard.heat{border-top-color:var(--hot);}
+.mcard.air{border-top-color:var(--cyan);}
+.mcard.noise{border-top-color:var(--purple);}
+.mcard h3{font-size:13px;margin-bottom:10px;color:var(--text);display:flex;justify-content:space-between;align-items:center;}
+.mcard-status{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;}
+.mrow{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px dashed var(--border);color:var(--text-dim);}
+.mrow b{font-family:var(--mono);color:var(--text);}
+
+/* ===== CONTROL PANEL ===== */
+#controlPanel{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;}
+.ctrl-group{background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:10px;}
+.ctrl-group h4{font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:8px;letter-spacing:.5px;}
+.btnrow{display:flex;gap:6px;flex-wrap:wrap;}
+button.scada-btn{background:var(--panel3);border:1px solid var(--border-lt);color:var(--text);padding:8px 10px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;flex:1;min-width:70px;transition:.15s;}
+button.scada-btn:hover{filter:brightness(1.2);}
+button.scada-btn:disabled{opacity:.35;cursor:not-allowed;}
+.btn-start{background:var(--green-dim);border-color:var(--green);color:var(--green);}
+.btn-stop{background:var(--yellow-dim);border-color:var(--yellow);color:var(--yellow);}
+.btn-estop{background:var(--red);border-color:#fff;color:#fff;font-size:13px;padding:12px;width:100%;}
+.btn-estop:hover{background:#c62828;}
+.btn-active{background:var(--green)!important;color:#04140a!important;}
+.status-pill{font-size:10px;padding:3px 8px;border-radius:9px;font-weight:700;display:inline-block;margin-left:6px;}
+.pill-on{background:var(--green-dim);color:var(--green);}
+.pill-off{background:var(--gray-dim);color:var(--gray);}
+
+/* ===== TRENDS PAGE ===== */
+#rangeButtons{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+#rangeButtons button{background:var(--panel2);border:1px solid var(--border-lt);color:var(--text-dim);padding:7px 16px;border-radius:5px;cursor:pointer;font-size:12px;}
+#rangeButtons button.active{background:var(--cyan);color:#04222a;border-color:var(--cyan);font-weight:700;}
+.chartGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+@media(max-width:1000px){.chartGrid{grid-template-columns:1fr;}}
+.chartBox{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px;}
+.chartBox h4{font-size:12px;color:var(--text-dim);margin-bottom:8px;}
+.chartBox .cwrap{position:relative;height:200px;}
+
+/* ===== KPI PAGE ===== */
+#kpiGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:18px;}
+.kpi-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center;border-top:3px solid var(--cyan);}
+.kpi-card .kv{font-size:26px;font-weight:700;font-family:var(--mono);color:var(--cyan);margin:6px 0;}
+.kpi-card .kl{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px;}
+
+/* ===== ALARM MODAL ===== */
+#alarmModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;}
+#alarmModal.show{display:flex;}
+#alarmBox{background:var(--panel);border:2px solid var(--red);border-radius:10px;padding:22px;max-width:420px;width:90%;box-shadow:0 0 40px rgba(239,68,68,.4);}
+#alarmBox h2{color:var(--red);font-size:18px;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+#alarmBox .a-detail{background:var(--red-dim);border-radius:6px;padding:10px;margin:10px 0;font-size:13px;}
+#alarmBox .a-detail div{margin:3px 0;}
+#alarmBox button{width:100%;padding:10px;background:var(--red);border:none;color:#fff;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px;margin-top:6px;}
+
+#alarmLogTable{width:100%;border-collapse:collapse;font-size:12.5px;}
+#alarmLogTable th{text-align:left;padding:8px;border-bottom:2px solid var(--border-lt);color:var(--text-dim);font-size:11px;text-transform:uppercase;}
+#alarmLogTable td{padding:7px 8px;border-bottom:1px solid var(--border);}
+#alarmLogTable tr.active-alarm td{color:var(--red);}
+#alarmLogTable tr.ack td{color:var(--text-mute);}
+
+footer{text-align:center;padding:16px;color:var(--text-mute);font-size:11px;border-top:1px solid var(--border);margin-top:20px;}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo-badge">ODTI</div>
+  <div class="logo-badge">KM</div>
+  <h1>Porshenli kompressor — ikkilamchi energiya resurslarini qayta tiklash SCADA tizimi
+    <span>Issiqlik · Siqilgan havo · Shovqin energiyasini monitoring va boshqarish</span>
+  </h1>
+  <div id="clockbox">--:--:--</div>
+  <div id="modebadge" class="mode-normal">NORMAL REJIM</div>
+  <button class="iconbtn" onclick="toggleFullscreen()">⛶ To'liq ekran</button>
+</div>
+
+<div id="navtabs">
+  <button class="navtab active" data-page="pageMain" onclick="showPage('pageMain')">Bosh sahifa</button>
+  <button class="navtab" data-page="pageTrends" onclick="showPage('pageTrends')">Grafiklar</button>
+  <button class="navtab" data-page="pageKpi" onclick="showPage('pageKpi')">Energiya samaradorligi</button>
+  <button class="navtab" data-page="pageAlarms" onclick="showPage('pageAlarms')">Alarm jurnali <span class="badge" id="alarmCountBadge" style="display:none">0</span></button>
+</div>
+
+<!-- ================= MAIN PAGE ================= -->
+<div class="page active" id="pageMain">
+  <div id="mainGrid">
+    <div class="panel" id="schematicWrap">
+      <h2>Texnologik sxema — havo va issiqlik oqimi</h2>
+      <svg id="schematicSvg" viewBox="0 0 1400 480" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="legend-row">
+        <span><i class="legend-dot" style="background:#c62828"></i>Issiq suv / issiq havo</span>
+        <span><i class="legend-dot" style="background:#1565c0"></i>Sovuq suv</span>
+        <span><i class="legend-dot" style="background:#00acc1"></i>Siqilgan havo</span>
+        <span><i class="legend-dot" style="background:#2e7d32"></i>Qayta tiklangan elektr</span>
+        <span><i class="legend-dot" style="background:#f9a825"></i>Signal / boshqaruv</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Real vaqt parametrlari</h2>
+      <table id="paramTable">
+        <tr><td>Ish bosimi</td><td id="v_pressure">0.85</td><td>MPa (0.8–1.0)</td></tr>
+        <tr><td>Siqilgan havo tezligi</td><td id="v_airspeed">28</td><td>m/s (5–50)</td></tr>
+        <tr><td>So'rilayotgan havo harorati</td><td id="v_inlettemp">26</td><td>°C (20–40)</td></tr>
+        <tr><td>Kompressor chiqish harorati</td><td id="v_outtemp">78</td><td>°C (70–90)</td></tr>
+        <tr><td>Issiq suv harorati</td><td id="v_hwtemp">80</td><td>°C (70–90)</td></tr>
+        <tr><td>Shovqin darajasi</td><td id="v_noise">64</td><td>dB (59–76)</td></tr>
+        <tr><td>Mikroturbina quvvati</td><td id="v_turbine">95</td><td>W (0–240)</td></tr>
+        <tr><td>Termoelektr generator</td><td id="v_teg">60</td><td>W (0–150)</td></tr>
+        <tr><td>Piezoelektr generator</td><td id="v_piezo">6</td><td>W (0–20)</td></tr>
+        <tr><td>Akkumulyator zaryadi</td><td id="v_batt">54</td><td>% (0–100)</td></tr>
+        <tr><td>Elektr dvigatel yuklanishi</td><td id="v_motorload">50</td><td>% (0–100)</td></tr>
+        <tr><td>Energiya samaradorligi</td><td id="v_eff">72.0</td><td>% (60–84.5)</td></tr>
+        <tr><td>Jami qayta tiklangan quvvat</td><td id="v_totalpower">161</td><td>W</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div id="cardsRow">
+    <div class="mcard heat">
+      <h3>Issiqlik energiyasi <span class="mcard-status" id="heatStatus">NORMAL</span></h3>
+      <div class="mrow"><span>Kompressor chiqish harorati</span><b id="c_outtemp">78 °C</b></div>
+      <div class="mrow"><span>Issiq suv harorati</span><b id="c_hwtemp">80 °C</b></div>
+      <div class="mrow"><span>Suv sarfi</span><b id="c_waterflow">1.8 l/s</b></div>
+      <div class="mrow"><span>TEG quvvati</span><b id="c_teg">60 W</b></div>
+      <div class="mrow"><span>Qayta tiklangan issiqlik</span><b id="c_heatpower">2.4 kW</b></div>
+      <div class="mrow" style="border:none"><span>Almashtirgich samaradorligi</span><b id="c_hxeff">86 %</b></div>
+    </div>
+    <div class="mcard air">
+      <h3>Siqilgan havo energiyasi <span class="mcard-status" id="airStatus">NORMAL</span></h3>
+      <div class="mrow"><span>Bosim</span><b id="c_pressure">0.85 MPa</b></div>
+      <div class="mrow"><span>Havo tezligi</span><b id="c_airspeed">28 m/s</b></div>
+      <div class="mrow"><span>Havo sarfi</span><b id="c_airflow">6.4 m³/min</b></div>
+      <div class="mrow"><span>Mikroturbina aylanish tezligi</span><b id="c_rpm">14200 ayl/min</b></div>
+      <div class="mrow"><span>Ishlab chiqarilgan quvvat</span><b id="c_turbinepower">95 W</b></div>
+      <div class="mrow" style="border:none"><span>Mikroturbina samaradorligi</span><b id="c_turbeff">62 %</b></div>
+    </div>
+    <div class="mcard noise">
+      <h3>Shovqin va tebranish energiyasi <span class="mcard-status" id="noiseStatus">NORMAL</span></h3>
+      <div class="mrow"><span>Shovqin darajasi</span><b id="c_noise">64 dB</b></div>
+      <div class="mrow"><span>Tebranish amplitudasi</span><b id="c_vibr">0.42 mm</b></div>
+      <div class="mrow"><span>Piezoelektr kuchlanishi</span><b id="c_piezov">3.1 V</b></div>
+      <div class="mrow"><span>Hosil bo'layotgan tok</span><b id="c_piezoi">1.9 mA</b></div>
+      <div class="mrow"><span>Ishlab chiqarilgan quvvat</span><b id="c_piezopower">6 W</b></div>
+      <div class="mrow" style="border:none"><span>Chegaradan oshish</span><b id="c_noiseover">YO'Q</b></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Operator boshqaruv paneli</h2>
+    <div id="controlPanel">
+      <div class="ctrl-group">
+        <h4>Kompressor</h4>
+        <div class="btnrow">
+          <button class="scada-btn btn-start" id="btnStart" onclick="cmdStart()">START</button>
+          <button class="scada-btn btn-stop" id="btnStop" onclick="cmdStop()">STOP</button>
+        </div>
+        <div style="margin-top:8px"><button class="scada-btn btn-estop" onclick="cmdEStop()">⛔ EMERGENCY STOP</button></div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-dim)">Holat: <span class="status-pill" id="compStatusPill">TO'XTATILGAN</span></div>
+      </div>
+      <div class="ctrl-group">
+        <h4>Yordamchi uskunalar</h4>
+        <div class="btnrow">
+          <button class="scada-btn" id="btnPump" onclick="toggle('pumpOn')">Suv nasosi</button>
+          <button class="scada-btn" id="btnFan" onclick="toggle('fanOn')">Sovutish ventilyatori</button>
+          <button class="scada-btn" id="btnTurbine" onclick="toggle('turbineValveOpen')">Turbina klapani</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h4>Kompressor yuklanishi</h4>
+        <div class="btnrow">
+          <button class="scada-btn" onclick="setLoad(25)">25%</button>
+          <button class="scada-btn" onclick="setLoad(50)">50%</button>
+          <button class="scada-btn" onclick="setLoad(75)">75%</button>
+          <button class="scada-btn" onclick="setLoad(100)">100%</button>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-dim)">Joriy: <b id="loadLabel" style="color:var(--cyan)">50%</b></div>
+      </div>
+      <div class="ctrl-group">
+        <h4>Boshqaruv rejimi</h4>
+        <div class="btnrow">
+          <button class="scada-btn" id="btnAuto" onclick="setCtrlMode('AUTO')">AVTOMATIK</button>
+          <button class="scada-btn" id="btnManual" onclick="setCtrlMode('MANUAL')">QO'LDA</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h4>Issiq suv oqimi</h4>
+        <input type="range" id="hwFlowSlider" min="0" max="100" value="60" style="width:100%" oninput="state.hwFlowSetting=+this.value">
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Rostlash: <b id="hwFlowLabel" style="color:var(--cyan)">60%</b></div>
+      </div>
+      <div class="ctrl-group">
+        <h4>Tizim</h4>
+        <div class="btnrow">
+          <button class="scada-btn" onclick="ackAllAlarms()">Signallarni tasdiqlash</button>
+          <button class="scada-btn" onclick="restartSim()">Qayta ishga tushirish</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= TRENDS PAGE ================= -->
+<div class="page" id="pageTrends">
+  <div id="rangeButtons">
+    <button class="active" data-range="1m" onclick="setRange('1m')">1 daqiqa</button>
+    <button data-range="10m" onclick="setRange('10m')">10 daqiqa</button>
+    <button data-range="1h" onclick="setRange('1h')">1 soat</button>
+    <button data-range="shift" onclick="setRange('shift')">1 smena</button>
+    <button data-range="day" onclick="setRange('day')">1 sutka</button>
+  </div>
+  <div class="chartGrid">
+    <div class="chartBox"><h4>Bosim va harorat (vaqt bo'yicha)</h4><div class="cwrap"><canvas id="chartPT" role="img" aria-label="Bosim va harorat grafigi"></canvas></div></div>
+    <div class="chartBox"><h4>Shovqin darajasi</h4><div class="cwrap"><canvas id="chartNoise" role="img" aria-label="Shovqin darajasi grafigi"></canvas></div></div>
+    <div class="chartBox"><h4>Siqilgan havo tezligi va mikroturbina quvvati</h4><div class="cwrap"><canvas id="chartAir" role="img" aria-label="Havo tezligi va turbina quvvati grafigi"></canvas></div></div>
+    <div class="chartBox"><h4>TEG va piezoelektr generator quvvati</h4><div class="cwrap"><canvas id="chartGen" role="img" aria-label="Generatorlar quvvati grafigi"></canvas></div></div>
+    <div class="chartBox"><h4>Jami qayta tiklangan energiya va samaradorlik</h4><div class="cwrap"><canvas id="chartEnergy" role="img" aria-label="Jami energiya va samaradorlik grafigi"></canvas></div></div>
+    <div class="chartBox"><h4>Akkumulyator zaryadi</h4><div class="cwrap"><canvas id="chartBatt" role="img" aria-label="Akkumulyator zaryadi grafigi"></canvas></div></div>
+  </div>
+</div>
+
+<!-- ================= KPI PAGE ================= -->
+<div class="page" id="pageKpi">
+  <div id="kpiGrid">
+    <div class="kpi-card"><div class="kl">Jami elektr quvvat</div><div class="kv" id="k_power">161 W</div></div>
+    <div class="kpi-card"><div class="kl">Qayta tiklangan issiqlik</div><div class="kv" id="k_heat">2.4 kW</div></div>
+    <div class="kpi-card"><div class="kl">Energiya samaradorligi</div><div class="kv" id="k_eff">72.0 %</div></div>
+    <div class="kpi-card"><div class="kl">Kunlik tejalish</div><div class="kv" id="k_daily">38.6 kVt·soat</div></div>
+    <div class="kpi-card"><div class="kl">Oylik iqtisodiy samara</div><div class="kv" id="k_monthly">4.8 mln so'm</div></div>
+    <div class="kpi-card"><div class="kl">O'zini qoplash muddati</div><div class="kv" id="k_payback">14 oy</div></div>
+  </div>
+  <div class="panel">
+    <h2>Energiya balansi va iqtisodiy ko'rsatkichlar</h2>
+    <table id="paramTable">
+      <tr><td>Kompressor iste'mol qilayotgan elektr energiyasi</td><td id="e_consumed">7.4</td><td>kW</td></tr>
+      <tr><td>Qayta tiklangan elektr energiyasi</td><td id="e_recovered">0.16</td><td>kW</td></tr>
+      <tr><td>Qayta tiklangan issiqlik energiyasi</td><td id="e_heatrecovered">2.4</td><td>kW</td></tr>
+      <tr><td>Sof energiya tejalishi</td><td id="e_netsave">2.56</td><td>kW</td></tr>
+      <tr><td>Umumiy FIK (foydali ish koeffitsienti)</td><td id="e_fik">72.0</td><td>%</td></tr>
+      <tr><td>Kunlik iqtisodiy samara</td><td id="e_daily_econ">161 000</td><td>so'm</td></tr>
+      <tr><td>Yillik iqtisodiy samara</td><td id="e_yearly_econ">58.8</td><td>mln so'm</td></tr>
+      <tr><td>CO₂ emissiyasining kamayishi</td><td id="e_co2">10.8</td><td>kg/kun</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ================= ALARM LOG PAGE ================= -->
+<div class="page" id="pageAlarms">
+  <div class="panel">
+    <h2>Alarm jurnali</h2>
+    <table id="alarmLogTable">
+      <thead><tr><th>Vaqt</th><th>Parametr</th><th>Sabab</th><th>Qiymat</th><th>Holat</th></tr></thead>
+      <tbody id="alarmLogBody"><tr><td colspan="5" style="color:var(--text-mute);text-align:center;padding:20px">Avariya holatlari qayd etilmagan</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ================= ALARM MODAL ================= -->
+<div id="alarmModal">
+  <div id="alarmBox">
+    <h2>⚠ AVARIYA HOLATI</h2>
+    <div class="a-detail">
+      <div><b>Vaqt:</b> <span id="am_time"></span></div>
+      <div><b>Parametr:</b> <span id="am_param"></span></div>
+      <div><b>Sabab:</b> <span id="am_reason"></span></div>
+      <div><b>Qiymat:</b> <span id="am_value"></span></div>
+    </div>
+    <button onclick="closeAlarmModal()">Tasdiqlash</button>
+  </div>
+</div>
+
+<footer>ODTI — "Kelajak muhandislari" | Porshenli kompressor ikkilamchi energiya resurslarini qayta tiklash SCADA/HMI simulyatsiyasi | Ta'lim maqsadida ishlab chiqilgan</footer>
+
+<script>
+/* ======================================================================
+   HOLAT MODELI (STATE)
+   ====================================================================== */
+const state = {
+  running:false, mode:'NORMAL', ctrlMode:'AUTO', load:50,
+  pumpOn:false, fanOn:false, turbineValveOpen:false,
+  hwFlowSetting:60,
+  pressure:0.85, airSpeed:28, inletTemp:26, outTemp:78, hwTemp:80, noise:64,
+  turbinePower:95, tegPower:60, piezoPower:6, battCharge:54, motorLoad:50,
+  efficiency:72.0, totalRecoveredElec:0, totalRecoveredHeat:0,
+  waterFlow:1.8, hxEff:86, turbEff:62, vibration:0.42, piezoV:3.1, piezoI:1.9,
+  rpm:14200, cumEnergyWh:0, cumHeatWh:0, tick:0
+};
+const alarms = []; // {time, param, reason, value, ack}
+let currentAlarmId = null;
+
+/* ======================================================================
+   TEXNOLOGIK SXEMA (SVG) — jarayon obyektlari
+   ====================================================================== */
+const eqNodes = [
+  {id:'filt', x:20,  y:200, w:70, h:60, label:'Havo\nfiltri', num:1},
+  {id:'suct', x:120, y:200, w:60, h:60, label:'So\'rish\nquvuri', num:2},
+  {id:'motor',x:210, y:120, w:80, h:60, label:'Elektr\ndvigateli', num:3},
+  {id:'comp', x:210, y:220, w:80, h:60, label:'Porshenli\nkompressor', num:4},
+  {id:'st1',  x:320, y:220, w:70, h:60, label:'1-bosqich\nsilindri', num:5},
+  {id:'ic',   x:420, y:150, w:70, h:60, label:'Oraliq\nsovutgich', num:6},
+  {id:'st2',  x:420, y:220, w:70, h:60, label:'2-bosqich\nsilindri', num:7},
+  {id:'ac',   x:520, y:150, w:70, h:60, label:'So\'nggi\nsovutgich', num:8},
+  {id:'sep',  x:520, y:220, w:70, h:60, label:'Namlik/moy\najratgich', num:9},
+  {id:'recv', x:620, y:220, w:70, h:60, label:'Havo\nyig\'gich', num:10},
+  {id:'apipe',x:720, y:220, w:70, h:60, label:'Siqilgan\nhavo quvuri', num:11},
+  {id:'hx',   x:830, y:150, w:80, h:60, label:'Issiqlik\nalmashtirgich', num:12},
+  {id:'cwtank',x:830,y:280, w:80, h:60, label:'Sovuq suv\nrezervuari', num:13},
+  {id:'hwtank',x:960,y:80,  w:80, h:60, label:'Issiq suv\nrezervuari', num:14},
+  {id:'pump', x:960, y:280, w:70, h:60, label:'Suv\nnasosi', num:15},
+  {id:'tower',x:1060,y:200, w:80, h:60, label:'Sovutish\nminorasi', num:16},
+  {id:'teg',  x:1080,y:80,  w:80, h:60, label:'Termoelektr\ngenerator', num:17},
+  {id:'mturb',x:830,  y:320, w:80, h:60, label:'Havo\nmikroturbinasi', num:18},
+  {id:'piezo',x:320,  y:320, w:80, h:60, label:'Piezoelektr\ngenerator', num:19},
+  {id:'batt', x:1200, y:150, w:70, h:60, label:'Akkumulyator', num:20},
+  {id:'inv',  x:1200, y:250, w:70, h:60, label:'Inverter', num:21},
+  {id:'plc',  x:1300, y:200, w:80, h:60, label:'PLC /\nkontroller', num:22},
+];
+const pipes = [
+  {from:'filt',to:'suct',type:'air'},
+  {from:'suct',to:'comp',type:'air'},
+  {from:'motor',to:'comp',type:'elec'},
+  {from:'comp',to:'st1',type:'hot'},
+  {from:'st1',to:'ic',type:'hot'},
+  {from:'ic',to:'st2',type:'air'},
+  {from:'st2',to:'ac',type:'hot'},
+  {from:'ac',to:'sep',type:'air'},
+  {from:'sep',to:'recv',type:'air'},
+  {from:'recv',to:'apipe',type:'air'},
+  {from:'apipe',to:'hx',type:'hot'},
+  {from:'apipe',to:'mturb',type:'air'},
+  {from:'hx',to:'hwtank',type:'hot'},
+  {from:'cwtank',to:'hx',type:'cold'},
+  {from:'hx',to:'cwtank',type:'cold'},
+  {from:'cwtank',to:'pump',type:'cold'},
+  {from:'pump',to:'tower',type:'cold'},
+  {from:'tower',to:'cwtank',type:'cold'},
+  {from:'hwtank',to:'teg',type:'hot'},
+  {from:'teg',to:'batt',type:'elec'},
+  {from:'mturb',to:'inv',type:'elec'},
+  {from:'piezo',to:'inv',type:'elec'},
+  {from:'batt',to:'inv',type:'elec'},
+  {from:'inv',to:'plc',type:'sig'},
+  {from:'comp',to:'piezo',type:'sig'},
+];
+function nodeById(id){return eqNodes.find(n=>n.id===id);}
+function cx(n){return n.x+n.w/2;} function cy(n){return n.y+n.h/2;}
+
+function buildSchematic(){
+  const svg = document.getElementById('schematicSvg');
+  let html = `<defs>
+    <marker id="arrH" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#c62828"/></marker>
+    <marker id="arrC" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#1565c0"/></marker>
+    <marker id="arrA" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#00acc1"/></marker>
+    <marker id="arrE" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2e7d32"/></marker>
+  </defs>`;
+  pipes.forEach(p=>{
+    const a=nodeById(p.from), b=nodeById(p.to);
+    const cls = p.type==='hot'?'pipe pipe-hot flow-anim':p.type==='cold'?'pipe pipe-cold flow-anim':p.type==='air'?'pipe pipe-air flow-anim':p.type==='elec'?'pipe pipe-elec flow-anim':'pipe pipe-sig';
+    const marker = p.type==='hot'?'arrH':p.type==='cold'?'arrC':p.type==='air'?'arrA':p.type==='elec'?'arrE':'';
+    html += `<line class="${cls}" id="pipe_${p.from}_${p.to}" x1="${cx(a)}" y1="${cy(a)}" x2="${cx(b)}" y2="${cy(b)}" ${marker?`marker-end="url(#${marker})"`:''}/>`;
+  });
+  eqNodes.forEach(n=>{
+    const lines = n.label.split('\n');
+    html += `<g id="eqg_${n.id}">
+      <rect class="eq-box" id="eqbox_${n.id}" x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="6"/>
+      <text class="eq-num" x="${cx(n)}" y="${n.y-6}">${n.num}</text>
+      ${lines.map((l,i)=>`<text class="eq-label" x="${cx(n)}" y="${cy(n)-6+i*12}">${l}</text>`).join('')}
+      <text class="eq-val" id="eqval_${n.id}" x="${cx(n)}" y="${n.y+n.h+14}"></text>
+    </g>`;
+  });
+  svg.innerHTML = html;
+}
+
+/* ======================================================================
+   SIMULYATSIYA HISOBLASH MODELI
+   ====================================================================== */
+function rnd(min,max){return min+Math.random()*(max-min);}
+function noise(v,amp){return v + rnd(-amp,amp);}
+
+function simulateTick(){
+  state.tick++;
+  const targetLoad = state.load/100;
+
+  if(!state.running){
+    // asta-sekin bekorlanish
+    state.pressure = Math.max(0.1, state.pressure - 0.01);
+    state.airSpeed = Math.max(0, state.airSpeed - 1);
+    state.outTemp = Math.max(state.inletTemp, state.outTemp - 0.5);
+    state.hwTemp = Math.max(25, state.hwTemp - 0.3);
+    state.noise = Math.max(35, state.noise - 1.2);
+    state.motorLoad = 0;
+    state.turbinePower *= 0.9; state.tegPower*=0.92; state.piezoPower*=0.85;
+  } else {
+    state.motorLoad = noise(targetLoad*100, 1.5);
+    state.inletTemp = noise(state.inletTemp*0.98 + 28*0.02, 0.6);
+    state.inletTemp = Math.min(40, Math.max(20, state.inletTemp));
+
+    // yuklanish rejimiga qarab bosim va harorat
+    const baseP = 0.8 + 0.2*targetLoad;
+    state.pressure = noise(baseP, 0.02);
+    state.airSpeed = noise(10 + 40*targetLoad, 1.5);
+    state.airSpeed = Math.max(5, Math.min(52, state.airSpeed));
+    const baseOut = 70 + 20*targetLoad;
+    state.outTemp = noise(baseOut, 1.2);
+    state.hwTemp = noise(state.outTemp - 2, 1.0);
+    state.noise = noise(58 + 18*targetLoad, 1.0);
+
+    // 8-band: mikroturbina quvvati havo tezligiga chiziqli bo'lmagan bog'liq (v/50)^2*240
+    const vRatio = Math.max(0,state.airSpeed)/50;
+    state.turbinePower = noise(240*Math.pow(vRatio,2), 4);
+    state.rpm = noise(state.airSpeed*284, 150);
+    state.turbEff = noise(45+17*vRatio, 2);
+
+    // TEG: haroratga bog'liq
+    const tRatio = Math.max(0,(state.hwTemp-25))/65;
+    state.tegPower = noise(150*tRatio*0.72, 3);
+
+    // Piezo: shovqinga bog'liq
+    const nRatio = Math.max(0,(state.noise-40))/40;
+    state.piezoPower = noise(20*nRatio*0.55, 0.6);
+    state.piezoV = noise(1+4*nRatio,0.2);
+    state.piezoI = noise(state.piezoPower/Math.max(state.piezoV,0.5)*1000,0.3);
+    state.vibration = noise(0.15+0.5*nRatio,0.05);
+
+    // Akkumulyator zaryadlanish
+    const genTotal = state.turbinePower+state.tegPower+state.piezoPower;
+    state.battCharge = Math.min(100, state.battCharge + genTotal*0.0006);
+
+    state.waterFlow = noise(1.2+1.2*targetLoad,0.1);
+    state.hxEff = noise(80+8*targetLoad,1.5);
+
+    // Umumiy energiya samaradorligi
+    state.efficiency = noise(60 + 24.5*targetLoad*0.85 + (state.hxEff-80)*0.1, 0.4);
+    state.efficiency = Math.min(84.5, Math.max(60, state.efficiency));
+
+    // Kumulyativ energiya (Wh) — 1s tick => /3600
+    state.cumEnergyWh += genTotal/3600;
+    const heatPowerW = state.waterFlow*4186*Math.max(0,(state.hwTemp-25))/1000; // taxminiy issiqlik quvvati (W ga yaqin, kW ko'rsatiladi)
+    state.cumHeatWh += heatPowerW/3600;
+  }
+
+  clampAll();
+  checkInterlocksAndAlarms();
+  pushChartData();
+}
+
+function clampAll(){
+  state.pressure=Math.max(0,state.pressure);
+  state.noise=Math.max(0,Math.min(120,state.noise));
+  state.battCharge=Math.max(0,Math.min(100,state.battCharge));
+  state.turbinePower=Math.max(0,state.turbinePower);
+  state.tegPower=Math.max(0,state.tegPower);
+  state.piezoPower=Math.max(0,state.piezoPower);
+}
+
+/* ======================================================================
+   INTERLOK VA AVARIYA MANTIG'I
+   ====================================================================== */
+function checkInterlocksAndAlarms(){
+  let newMode = 'NORMAL';
+  const issues = [];
+
+  if(state.running){
+    if(state.outTemp>90) issues.push(['Kompressor chiqish harorati','Yuqori harorat',state.outTemp.toFixed(1)+' °C']);
+    if(state.pressure>1.02) issues.push(['Ish bosimi','Ortiqcha bosim',state.pressure.toFixed(2)+' MPa']);
+    if(!state.pumpOn) issues.push(['Suv nasosi','Suv nasosining ishdan chiqishi','O\'CHIRILGAN']);
+    if(state.airSpeed<5) issues.push(['Siqilgan havo tezligi','Havo oqimining kamayishi',state.airSpeed.toFixed(1)+' m/s']);
+    if(state.noise>76) issues.push(['Shovqin darajasi','Shovqin me\'yordan oshdi',state.noise.toFixed(1)+' dB']);
+    if(state.battCharge>=100) issues.push(['Akkumulyator','Ortiqcha zaryadlanish','100 %']);
+  }
+
+  if(issues.length>0){
+    newMode='ALARM';
+    issues.forEach(([param,reason,value])=>raiseAlarm(param,reason,value));
+    if(state.outTemp>95 || state.pressure>1.05){ // og'ir avariya - avtomatik to'xtatish
+      state.running=false;
+    }
+  } else if(state.running && state.load>=75){
+    newMode='WARN';
+  }
+  state.mode=newMode;
+  updateModeBadge();
+}
+
+const activeAlarmKeys = new Set();
+function raiseAlarm(param,reason,value){
+  const key = param+'|'+reason;
+  if(activeAlarmKeys.has(key)) return;
+  activeAlarmKeys.add(key);
+  const a = {time:new Date().toLocaleTimeString('uz-UZ'),param,reason,value,ack:false,key};
+  alarms.unshift(a);
+  currentAlarmId = a;
+  openAlarmModal(a);
+  playBeep();
+  renderAlarmLog();
+  setTimeout(()=>activeAlarmKeys.delete(key), 8000);
+}
+
+function openAlarmModal(a){
+  document.getElementById('am_time').textContent=a.time;
+  document.getElementById('am_param').textContent=a.param;
+  document.getElementById('am_reason').textContent=a.reason;
+  document.getElementById('am_value').textContent=a.value;
+  document.getElementById('alarmModal').classList.add('show');
+}
+function closeAlarmModal(){
+  document.getElementById('alarmModal').classList.remove('show');
+}
+function ackAllAlarms(){
+  alarms.forEach(a=>a.ack=true);
+  renderAlarmLog();
+  closeAlarmModal();
+}
+function renderAlarmLog(){
+  const tbody = document.getElementById('alarmLogBody');
+  if(alarms.length===0){
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-mute);text-align:center;padding:20px">Avariya holatlari qayd etilmagan</td></tr>';
+  } else {
+    tbody.innerHTML = alarms.slice(0,60).map(a=>`<tr class="${a.ack?'ack':'active-alarm'}">
+      <td>${a.time}</td><td>${a.param}</td><td>${a.reason}</td><td>${a.value}</td>
+      <td>${a.ack?'Tasdiqlangan':'FAOL'}</td></tr>`).join('');
+  }
+  const unack = alarms.filter(a=>!a.ack).length;
+  const badge = document.getElementById('alarmCountBadge');
+  if(unack>0){badge.style.display='inline-block';badge.textContent=unack;} else {badge.style.display='none';}
+}
+
+let audioCtx;
+function playBeep(){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+    o.type='square'; o.frequency.value=880;
+    g.gain.value=0.06;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime+0.25);
+  }catch(e){}
+}
+
+/* ======================================================================
+   OPERATOR BUYRUQLARI
+   ====================================================================== */
+function cmdStart(){
+  if(!state.pumpOn){
+    raiseAlarm('Suv nasosi','Kompressorni ishga tushirishga ruxsat yo\'q — avval suv nasosini yoqing','O\'CHIRILGAN');
+    return;
+  }
+  state.running=true;
+  updateCompStatus();
+}
+function cmdStop(){
+  state.running=false;
+  updateCompStatus();
+}
+function cmdEStop(){
+  state.running=false;
+  state.pumpOn=false; state.fanOn=false; state.turbineValveOpen=false;
+  updateCompStatus();
+  raiseAlarm('Tizim','FAVQULODDA TO\'XTATISH bajarildi','—');
+}
+function toggle(key){
+  state[key]=!state[key];
+  updateCompStatus();
+}
+function setLoad(v){
+  state.load=v;
+  document.getElementById('loadLabel').textContent=v+'%';
+}
+function setCtrlMode(m){
+  state.ctrlMode=m;
+  document.getElementById('btnAuto').classList.toggle('btn-active', m==='AUTO');
+  document.getElementById('btnManual').classList.toggle('btn-active', m==='MANUAL');
+}
+function restartSim(){
+  Object.assign(state,{running:false,mode:'NORMAL',load:50,pumpOn:false,fanOn:false,turbineValveOpen:false,
+    pressure:0.85,airSpeed:28,inletTemp:26,outTemp:78,hwTemp:80,noise:64,turbinePower:95,tegPower:60,piezoPower:6,
+    battCharge:54,motorLoad:50,efficiency:72.0,cumEnergyWh:0,cumHeatWh:0});
+  alarms.length=0; activeAlarmKeys.clear();
+  renderAlarmLog();
+  setLoad(50); setCtrlMode('AUTO');
+  Object.keys(chartData).forEach(k=>chartData[k]=[]);
+}
+function updateCompStatus(){
+  const pill = document.getElementById('compStatusPill');
+  pill.textContent = state.running?'ISHLAMOQDA':'TO\'XTATILGAN';
+  pill.className = 'status-pill '+(state.running?'pill-on':'pill-off');
+  document.getElementById('btnPump').classList.toggle('btn-active',state.pumpOn);
+  document.getElementById('btnFan').classList.toggle('btn-active',state.fanOn);
+  document.getElementById('btnTurbine').classList.toggle('btn-active',state.turbineValveOpen);
+}
+function updateModeBadge(){
+  const b = document.getElementById('modebadge');
+  b.className = state.mode==='ALARM'?'mode-alarm':state.mode==='WARN'?'mode-warn':'mode-normal';
+  b.textContent = state.mode==='ALARM'?'AVARIYA REJIMI':state.mode==='WARN'?'YUQORI YUKLANISH':'NORMAL REJIM';
+}
+
+/* ======================================================================
+   INTERFEYSNI YANGILASH (RENDER)
+   ====================================================================== */
+function statusClass(v,lo,hi,loWarn,hiWarn){
+  if(v<lo||v>hi) return 'val-alarm';
+  if(v<loWarn||v>hiWarn) return 'val-warn';
+  return 'val-normal';
+}
+function setText(id,val,cls){
+  const el=document.getElementById(id);
+  el.textContent=val;
+  if(cls){el.className=cls;}
+}
+
+function renderMain(){
+  setText('v_pressure', state.pressure.toFixed(2), statusClass(state.pressure,0.5,1.05,0.8,1.0));
+  setText('v_airspeed', state.airSpeed.toFixed(1), statusClass(state.airSpeed,0,55,5,50));
+  setText('v_inlettemp', state.inletTemp.toFixed(1), statusClass(state.inletTemp,0,50,20,40));
+  setText('v_outtemp', state.outTemp.toFixed(1), statusClass(state.outTemp,0,95,70,90));
+  setText('v_hwtemp', state.hwTemp.toFixed(1), statusClass(state.hwTemp,0,95,70,90));
+  setText('v_noise', state.noise.toFixed(1), statusClass(state.noise,0,80,59,76));
+  setText('v_turbine', state.turbinePower.toFixed(0), 'val-normal');
+  setText('v_teg', state.tegPower.toFixed(0), 'val-normal');
+  setText('v_piezo', state.piezoPower.toFixed(1), 'val-normal');
+  setText('v_batt', state.battCharge.toFixed(0), statusClass(state.battCharge,0,99,10,95));
+  setText('v_motorload', state.motorLoad.toFixed(0), 'val-normal');
+  setText('v_eff', state.efficiency.toFixed(1), 'val-normal');
+  const totalP = state.turbinePower+state.tegPower+state.piezoPower;
+  setText('v_totalpower', totalP.toFixed(0), 'val-normal');
+
+  // monitoring kartalari
+  document.getElementById('c_outtemp').textContent=state.outTemp.toFixed(1)+' °C';
+  document.getElementById('c_hwtemp').textContent=state.hwTemp.toFixed(1)+' °C';
+  document.getElementById('c_waterflow').textContent=state.waterFlow.toFixed(2)+' l/s';
+  document.getElementById('c_teg').textContent=state.tegPower.toFixed(0)+' W';
+  const heatKw = state.waterFlow*4.186*Math.max(0,(state.hwTemp-25))/1000*1000/1000;
+  document.getElementById('c_heatpower').textContent=(state.waterFlow*4.186*Math.max(0,(state.hwTemp-25))).toFixed(1)+' kW';
+  document.getElementById('c_hxeff').textContent=state.hxEff.toFixed(0)+' %';
+
+  document.getElementById('c_pressure').textContent=state.pressure.toFixed(2)+' MPa';
+  document.getElementById('c_airspeed').textContent=state.airSpeed.toFixed(1)+' m/s';
+  document.getElementById('c_airflow').textContent=(state.airSpeed*0.0227).toFixed(1)+' m³/min';
+  document.getElementById('c_rpm').textContent=state.rpm.toFixed(0)+' ayl/min';
+  document.getElementById('c_turbinepower').textContent=state.turbinePower.toFixed(0)+' W';
+  document.getElementById('c_turbeff').textContent=state.turbEff.toFixed(0)+' %';
+
+  document.getElementById('c_noise').textContent=state.noise.toFixed(1)+' dB';
+  document.getElementById('c_vibr').textContent=state.vibration.toFixed(2)+' mm';
+  document.getElementById('c_piezov').textContent=state.piezoV.toFixed(1)+' V';
+  document.getElementById('c_piezoi').textContent=state.piezoI.toFixed(1)+' mA';
+  document.getElementById('c_piezopower').textContent=state.piezoPower.toFixed(1)+' W';
+  document.getElementById('c_noiseover').textContent = state.noise>76?'HA':'YO\'Q';
+
+  ['heatStatus','airStatus','noiseStatus'].forEach(id=>{
+    const el = document.getElementById(id);
+    el.textContent = state.mode==='ALARM'?'AVARIYA':state.mode==='WARN'?'OGOHLANTIRISH':'NORMAL';
+    el.style.background = state.mode==='ALARM'?'var(--red-dim)':state.mode==='WARN'?'var(--yellow-dim)':'var(--green-dim)';
+    el.style.color = state.mode==='ALARM'?'var(--red)':state.mode==='WARN'?'var(--yellow)':'var(--green)';
+  });
+
+  // sxema holatini yangilash
+  eqNodes.forEach(n=>{
+    const box = document.getElementById('eqbox_'+n.id);
+    let cls='eq-box';
+    if(state.mode==='ALARM' && ['comp','motor','sep'].includes(n.id)) cls+=' alarm';
+    else if(state.running) cls+=' on';
+    else if(state.mode==='WARN') cls+=' warn';
+    box.setAttribute('class',cls);
+  });
+  document.getElementById('eqval_teg').textContent=state.tegPower.toFixed(0)+'W';
+  document.getElementById('eqval_mturb').textContent=state.turbinePower.toFixed(0)+'W';
+  document.getElementById('eqval_piezo').textContent=state.piezoPower.toFixed(1)+'W';
+  document.getElementById('eqval_batt').textContent=state.battCharge.toFixed(0)+'%';
+  document.getElementById('eqval_hwtank').textContent=state.hwTemp.toFixed(0)+'°C';
+  document.getElementById('eqval_comp').textContent=state.pressure.toFixed(2)+'MPa';
+
+  updateCompStatus();
+}
+
+function renderKpi(){
+  const totalP = state.turbinePower+state.tegPower+state.piezoPower;
+  const heatKw = state.waterFlow*4.186*Math.max(0,(state.hwTemp-25));
+  const consumedKw = 5 + 5*(state.load/100); // taxminiy elektr dvigatel iste'moli
+  const netSave = totalP/1000 + heatKw*0.3; // taxminiy sof tejalish (elektr ekvivalentda)
+  const tariff = 900; // so'm/kVt·soat (taxminiy)
+  const dailyKwh = (totalP/1000 + heatKw*0.3)*24;
+  const dailyEcon = dailyKwh*tariff;
+  const monthlyEcon = dailyEcon*30;
+  const yearlyEcon = dailyEcon*365;
+  const investment = 45000000; // taxminiy investitsiya, so'm
+  const payback = investment/monthlyEcon;
+  const co2 = dailyKwh*0.62; // kg CO2/kWh taxminiy koeffitsient
+
+  document.getElementById('k_power').textContent=totalP.toFixed(0)+' W';
+  document.getElementById('k_heat').textContent=heatKw.toFixed(1)+' kW';
+  document.getElementById('k_eff').textContent=state.efficiency.toFixed(1)+' %';
+  document.getElementById('k_daily').textContent=dailyKwh.toFixed(1)+' kVt·soat';
+  document.getElementById('k_monthly').textContent=(monthlyEcon/1e6).toFixed(1)+' mln so\'m';
+  document.getElementById('k_payback').textContent=payback.toFixed(0)+' oy';
+
+  document.getElementById('e_consumed').textContent=consumedKw.toFixed(1);
+  document.getElementById('e_recovered').textContent=(totalP/1000).toFixed(2);
+  document.getElementById('e_heatrecovered').textContent=heatKw.toFixed(2);
+  document.getElementById('e_netsave').textContent=netSave.toFixed(2);
+  document.getElementById('e_fik').textContent=state.efficiency.toFixed(1);
+  document.getElementById('e_daily_econ').textContent=dailyEcon.toLocaleString('uz-UZ',{maximumFractionDigits:0});
+  document.getElementById('e_yearly_econ').textContent=(yearlyEcon/1e6).toFixed(1);
+  document.getElementById('e_co2').textContent=co2.toFixed(1);
+}
+
+/* ======================================================================
+   GRAFIKLAR (TRENDS)
+   ====================================================================== */
+const chartData = {pressure:[],outTemp:[],noise:[],airSpeed:[],turbinePower:[],teg:[],piezo:[],totalEnergy:[],eff:[],batt:[],labels:[]};
+const MAX_POINTS = 600; // 10 daqiqagacha 1s tick bilan; kattaroq oraliqlar uchun downsample
+function pushChartData(){
+  const t = new Date().toLocaleTimeString('uz-UZ');
+  chartData.labels.push(t);
+  chartData.pressure.push(state.pressure);
+  chartData.outTemp.push(state.outTemp);
+  chartData.noise.push(state.noise);
+  chartData.airSpeed.push(state.airSpeed);
+  chartData.turbinePower.push(state.turbinePower);
+  chartData.teg.push(state.tegPower);
+  chartData.piezo.push(state.piezoPower);
+  chartData.totalEnergy.push(state.cumEnergyWh);
+  chartData.eff.push(state.efficiency);
+  chartData.batt.push(state.battCharge);
+  Object.keys(chartData).forEach(k=>{ if(chartData[k].length>3600) chartData[k].shift(); });
+}
+
+let currentRange='1m';
+const rangeSeconds = {'1m':60,'10m':600,'1h':3600,'shift':3600*8,'day':3600*24};
+function setRange(r){
+  currentRange=r;
+  document.querySelectorAll('#rangeButtons button').forEach(b=>b.classList.toggle('active',b.dataset.range===r));
+  updateCharts();
+}
+function sampledData(arr){
+  const secs = rangeSeconds[currentRange];
+  const slice = arr.slice(-secs);
+  const targetPoints=60;
+  if(slice.length<=targetPoints) return slice;
+  const step=Math.ceil(slice.length/targetPoints);
+  const out=[];
+  for(let i=0;i<slice.length;i+=step) out.push(slice[i]);
+  return out;
+}
+
+let charts={};
+function makeChart(id,datasets,yLabel){
+  const ctx=document.getElementById(id);
+  charts[id]=new Chart(ctx,{
+    type:'line',
+    data:{labels:[],datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:true,labels:{color:'#7e93a8',boxWidth:12,font:{size:10}}}},
+      scales:{
+        x:{ticks:{color:'#54697d',maxTicksLimit:6,font:{size:9}},grid:{color:'#1c2632'}},
+        y:{ticks:{color:'#54697d',font:{size:9}},grid:{color:'#1c2632'}}
+      }
+    }
+  });
+}
+function initCharts(){
+  makeChart('chartPT',[
+    {label:'Bosim (MPa)',data:[],borderColor:'#00acc1',borderWidth:1.5,pointRadius:0,yAxisID:'y'},
+    {label:'Harorat (°C)',data:[],borderColor:'#ef4444',borderWidth:1.5,pointRadius:0,yAxisID:'y'}
+  ]);
+  makeChart('chartNoise',[{label:'Shovqin (dB)',data:[],borderColor:'#a78bfa',borderWidth:1.5,pointRadius:0}]);
+  makeChart('chartAir',[
+    {label:'Havo tezligi (m/s)',data:[],borderColor:'#22d3ee',borderWidth:1.5,pointRadius:0},
+    {label:'Turbina quvvati (W)',data:[],borderColor:'#eab308',borderWidth:1.5,pointRadius:0}
+  ]);
+  makeChart('chartGen',[
+    {label:'TEG (W)',data:[],borderColor:'#ef4444',borderWidth:1.5,pointRadius:0},
+    {label:'Piezo (W)',data:[],borderColor:'#a78bfa',borderWidth:1.5,pointRadius:0}
+  ]);
+  makeChart('chartEnergy',[
+    {label:'Jami energiya (Wh)',data:[],borderColor:'#22c55e',borderWidth:1.5,pointRadius:0},
+    {label:'Samaradorlik (%)',data:[],borderColor:'#3b82f6',borderWidth:1.5,pointRadius:0}
+  ]);
+  makeChart('chartBatt',[{label:'Akkumulyator (%)',data:[],borderColor:'#22c55e',borderWidth:1.5,pointRadius:0}]);
+}
+function updateCharts(){
+  const labels = sampledData(chartData.labels);
+  charts.chartPT.data.labels=labels;
+  charts.chartPT.data.datasets[0].data=sampledData(chartData.pressure);
+  charts.chartPT.data.datasets[1].data=sampledData(chartData.outTemp);
+  charts.chartPT.update('none');
+
+  charts.chartNoise.data.labels=labels;
+  charts.chartNoise.data.datasets[0].data=sampledData(chartData.noise);
+  charts.chartNoise.update('none');
+
+  charts.chartAir.data.labels=labels;
+  charts.chartAir.data.datasets[0].data=sampledData(chartData.airSpeed);
+  charts.chartAir.data.datasets[1].data=sampledData(chartData.turbinePower);
+  charts.chartAir.update('none');
+
+  charts.chartGen.data.labels=labels;
+  charts.chartGen.data.datasets[0].data=sampledData(chartData.teg);
+  charts.chartGen.data.datasets[1].data=sampledData(chartData.piezo);
+  charts.chartGen.update('none');
+
+  charts.chartEnergy.data.labels=labels;
+  charts.chartEnergy.data.datasets[0].data=sampledData(chartData.totalEnergy);
+  charts.chartEnergy.data.datasets[1].data=sampledData(chartData.eff);
+  charts.chartEnergy.update('none');
+
+  charts.chartBatt.data.labels=labels;
+  charts.chartBatt.data.datasets[0].data=sampledData(chartData.batt);
+  charts.chartBatt.update('none');
+}
+
+/* ======================================================================
+   NAVIGATSIYA / UMUMIY
+   ====================================================================== */
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.navtab').forEach(t=>t.classList.toggle('active',t.dataset.page===id));
+  if(id==='pageTrends') updateCharts();
+}
+function toggleFullscreen(){
+  if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{});}
+  else{document.exitFullscreen();}
+}
+function updateClock(){
+  document.getElementById('clockbox').textContent=new Date().toLocaleString('uz-UZ');
+}
+
+/* ======================================================================
+   ISHGA TUSHIRISH
+   ====================================================================== */
+buildSchematic();
+initCharts();
+renderAlarmLog();
+setInterval(updateClock,1000);
+updateClock();
+setInterval(()=>{
+  simulateTick();
+  renderMain();
+  renderKpi();
+  if(document.getElementById('pageTrends').classList.contains('active')) updateCharts();
+},1000);
+renderMain();
+renderKpi();
+</script>
+</body>
+</html>
